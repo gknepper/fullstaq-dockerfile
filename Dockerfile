@@ -1,67 +1,71 @@
-FROM scratch
+############################
+# STEP 1 - Download the lastest cloudimg from ubuntu servers
+############################
+FROM ubuntu:focal AS builder
 
-# Multiarch aproach (https://www.docker.com/blog/multi-arch-build-and-images-the-simple-way/)
-ARG ARCH=
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gnupg apt-transport-https ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    set -eux; \
+    ARCH="$(dpkg --print-architecture)"; \
+    curl -SLfO https://partner-images.canonical.com/core/focal/current/ubuntu-focal-core-cloudimg-${ARCH}-root.tar.gz \
+    && mkdir temp \
+    && mv ubuntu-focal-core-cloudimg-${ARCH}-root.tar.gz /temp \
+    && cd temp \
+    && tar zxpvf ubuntu-focal-core-cloudimg-${ARCH}-root.tar.gz \
+    && rm -rf ubuntu-focal-core-cloudimg-${ARCH}-root.tar.gz
 
-ADD https://partner-images.canonical.com/core/focal/current/ubuntu-focal-core-cloudimg-${ARCH}-root.tar.gz /
 
-# verify that the APT lists files do not exist
-RUN [ -z "$(apt-get indextargets)" ]
-# (see https://bugs.launchpad.net/cloud-images/+bug/1699913)
+############################
+# STEP 2 build a image from scratch using the cloud image download from the previous step
+############################
+FROM scratch 
 
-# a few minor docker-specific tweaks
-# see https://github.com/docker/docker/blob/9a9fc01af8fb5d98b8eec0740716226fadb3735c/contrib/mkimage/debootstrap
-RUN set -xe \
-	\
-# https://github.com/docker/docker/blob/9a9fc01af8fb5d98b8eec0740716226fadb3735c/contrib/mkimage/debootstrap#L40-L48
-	&& echo '#!/bin/sh' > /usr/sbin/policy-rc.d \
-	&& echo 'exit 101' >> /usr/sbin/policy-rc.d \
-	&& chmod +x /usr/sbin/policy-rc.d \
-	\
-# https://github.com/docker/docker/blob/9a9fc01af8fb5d98b8eec0740716226fadb3735c/contrib/mkimage/debootstrap#L54-L56
-	&& dpkg-divert --local --rename --add /sbin/initctl \
-	&& cp -a /usr/sbin/policy-rc.d /sbin/initctl \
-	&& sed -i 's/^exit.*/exit 0/' /sbin/initctl \
-	\
-# https://github.com/docker/docker/blob/9a9fc01af8fb5d98b8eec0740716226fadb3735c/contrib/mkimage/debootstrap#L71-L78
-	&& echo 'force-unsafe-io' > /etc/dpkg/dpkg.cfg.d/docker-apt-speedup \
-	\
-# https://github.com/docker/docker/blob/9a9fc01af8fb5d98b8eec0740716226fadb3735c/contrib/mkimage/debootstrap#L85-L105
-	&& echo 'DPkg::Post-Invoke { "rm -f /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*.deb /var/cache/apt/*.bin || true"; };' > /etc/apt/apt.conf.d/docker-clean \
-	&& echo 'APT::Update::Post-Invoke { "rm -f /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*.deb /var/cache/apt/*.bin || true"; };' >> /etc/apt/apt.conf.d/docker-clean \
-	&& echo 'Dir::Cache::pkgcache ""; Dir::Cache::srcpkgcache "";' >> /etc/apt/apt.conf.d/docker-clean \
-	\
-# https://github.com/docker/docker/blob/9a9fc01af8fb5d98b8eec0740716226fadb3735c/contrib/mkimage/debootstrap#L109-L115
-	&& echo 'Acquire::Languages "none";' > /etc/apt/apt.conf.d/docker-no-languages \
-	\
-# https://github.com/docker/docker/blob/9a9fc01af8fb5d98b8eec0740716226fadb3735c/contrib/mkimage/debootstrap#L118-L130
-	&& echo 'Acquire::GzipIndexes "true"; Acquire::CompressionTypes::Order:: "gz";' > /etc/apt/apt.conf.d/docker-gzip-indexes \
-	\
-# https://github.com/docker/docker/blob/9a9fc01af8fb5d98b8eec0740716226fadb3735c/contrib/mkimage/debootstrap#L134-L151
-	&& echo 'Apt::AutoRemove::SuggestsImportant "false";' > /etc/apt/apt.conf.d/docker-autoremove-suggests
+MAINTAINER Gabriel Knepper Mendes <gabriel666@gmail.com>
 
-# make systemd-detect-virt return "docker"
-# See: https://github.com/systemd/systemd/blob/aa0c34279ee40bce2f9681b496922dedbadfca19/src/basic/virt.c#L434
-RUN mkdir -p /run/systemd && echo 'docker' > /run/systemd/container
+
+# Copy cloud image from previous step
+COPY --from=builder /temp /
+
 
 CMD ["/bin/bash"]
+
 
 # First, make sure your package manager supports HTTPS and that the necessary crypto tools are installed:
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gnupg apt-transport-https ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
+
 # Next, add the Fullstaq Ruby repository by creating /etc/apt/sources.list.d/fullstaq-ruby.list. 
 RUN echo "deb https://apt.fullstaqruby.org ubuntu-20.04 main" > /etc/apt/sources.list.d/fullstaq-ruby.list
 
+
 # Then run:
 RUN curl -SLfO https://raw.githubusercontent.com/fullstaq-labs/fullstaq-ruby-server-edition/main/fullstaq-ruby.asc \ 
-    && sudo apt-key add fullstaq-ruby.asc \
-    && sudo apt update
+    && apt-key add fullstaq-ruby.asc \
+    && apt update
+
 
 # Then install fullstaq-ruby-common
-RUN sudo apt install fullstaq-ruby-common 
+RUN apt-get install -y --no-install-recommends fullstaq-ruby-common 
+
 
 #Ruby packages are now available as fullstaq-ruby-<VERSION>:
-RUN sudo apt search fullstaq-ruby
+# RUN apt search fullstaq-ruby
+
+
+# Set the version
+ENV RBENV_VERSION 3.0.2-jemalloc
+# ENV RBENV_VERSION 3.0.2-malloctrim
+
+# Install fullstaq ruby
+RUN apt-get install -y --no-install-recommends fullstaq-ruby-${RBENV_VERSION}/ubuntu-20.04
+
+# Test Ruby installation
+RUN /usr/lib/fullstaq-ruby/versions/${RBENV_VERSION}/bin/ruby --version
+
+# Test GEM
+RUN /usr/lib/fullstaq-ruby/versions/${RBENV_VERSION}/bin/gem install --no-document nokogiri
+
 
