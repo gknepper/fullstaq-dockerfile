@@ -45,3 +45,23 @@ RUN set -xe \
 RUN mkdir -p /run/systemd && echo 'docker' > /run/systemd/container
 
 CMD ["/bin/bash"]
+
+# First, make sure your package manager supports HTTPS and that the necessary crypto tools are installed:
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gnupg apt-transport-https ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Next, add the Fullstaq Ruby repository by creating /etc/apt/sources.list.d/fullstaq-ruby.list. 
+RUN echo "deb https://apt.fullstaqruby.org ubuntu-20.04 main" > /etc/apt/sources.list.d/fullstaq-ruby.list
+
+# Then run:
+RUN curl -SLfO https://raw.githubusercontent.com/fullstaq-labs/fullstaq-ruby-server-edition/main/fullstaq-ruby.asc \ 
+    && sudo apt-key add fullstaq-ruby.asc \
+    && sudo apt update
+
+# Then install fullstaq-ruby-common
+RUN sudo apt install fullstaq-ruby-common 
+
+#Ruby packages are now available as fullstaq-ruby-<VERSION>:
+RUN sudo apt search fullstaq-ruby
+
