@@ -1,2 +1,2 @@
 # fullstaq-dockerfile
-A docker files to build fullstaq ruby server edition container from scratch
+A dockerfile to build fullstaq ruby server edition container from scratch
